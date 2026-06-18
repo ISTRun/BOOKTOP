@@ -289,6 +289,25 @@ def _tekuca_godina():
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+@app.route('/debug-init')
+def debug_init():
+    """Temporary route to diagnose DB connection issues."""
+    import traceback
+    info = {
+        'USE_POSTGRES': USE_POSTGRES,
+        'DATABASE_URL_set': bool(DATABASE_URL),
+        'DATABASE_URL_prefix': DATABASE_URL[:30] + '...' if len(DATABASE_URL) > 30 else DATABASE_URL,
+        'init_error': _init_error,
+    }
+    if not _init_error:
+        try:
+            row = query('SELECT COUNT(*) AS c FROM korisnici', one=True)
+            info['korisnici_count'] = row['c'] if row else 'query returned None'
+        except Exception as e:
+            info['query_error'] = str(e)
+    return '<pre>' + '\n'.join(f'{k}: {v}' for k, v in info.items()) + '</pre>'
+
+
 @app.route('/')
 def index():
     if 'korisnik_id' not in session:

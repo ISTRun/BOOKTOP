@@ -8,18 +8,36 @@ app.secret_key = os.environ.get('SECRET_KEY', 'booktop-secret-2024')
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 USE_POSTGRES = DATABASE_URL.startswith('postgres')
 
-
 # ── Database helpers ──────────────────────────────────────────────────────────
+
+def _parse_pg_url(url):
+    """Parse postgresql://user:pass@host/db?sslmode=require into kwargs."""
+    from urllib.parse import urlparse, parse_qs
+    url = url.replace('postgres://', 'postgresql://', 1)
+    p = urlparse(url)
+    qs = parse_qs(p.query)
+    ssl_context = None
+    if qs.get('sslmode', [''])[0] == 'require':
+        import ssl
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+    return dict(
+        host=p.hostname,
+        port=p.port or 5432,
+        database=p.path.lstrip('/'),
+        user=p.username,
+        password=p.password,
+        ssl_context=ssl_context,
+    )
+
 
 def get_db():
     if 'db' not in g:
         if USE_POSTGRES:
-            import psycopg2
-            import psycopg2.extras
-            url = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
-            conn = psycopg2.connect(url)
-            conn.autocommit = False
-            g.db = conn
+            import pg8000.dbapi as pg
+            kwargs = _parse_pg_url(DATABASE_URL)
+            g.db = pg.connect(**kwargs)
             g.db_type = 'postgres'
         else:
             import sqlite3
@@ -30,199 +48,176 @@ def get_db():
     return g.db
 
 
-def db_type():
-    get_db()
-    return g.db_type
+@app.teardown_appcontext
+def close_db(e=None):
+    conn = g.pop('db', None)
+    if conn:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _rows(cursor):
+    """Convert pg8000 cursor rows to list of dicts."""
+    if cursor.description is None:
+        return []
+    cols = [d[0] for d in cursor.description]
+    return [dict(zip(cols, row)) for row in cursor.fetchall()]
 
 
 def query(sql, params=(), one=False):
-    """Execute SELECT, return Row(s)."""
     conn = get_db()
     if g.db_type == 'postgres':
-        import psycopg2.extras
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(sql, params)
-            rows = cur.fetchall()
-        return rows[0] if (one and rows) else (None if one else rows)
+        cur = conn.cursor()
+        cur.execute(sql, params)
+        rows = _rows(cur)
+        return rows[0] if (one and rows) else (None if (one and not rows) else rows)
     else:
         cur = conn.execute(sql, params)
-        row = cur.fetchone()
         if one:
-            return row
-        cur2 = conn.execute(sql, params)
-        return cur2.fetchall()
+            return cur.fetchone()
+        return conn.execute(sql, params).fetchall()
 
 
 def execute(sql, params=()):
-    """Execute INSERT/UPDATE/DELETE."""
     conn = get_db()
     if g.db_type == 'postgres':
-        with conn.cursor() as cur:
-            cur.execute(sql, params)
+        cur = conn.cursor()
+        cur.execute(sql, params)
     else:
         conn.execute(sql, params)
 
 
-def executescript(sql):
+def lastrowid(sql, params=()):
     conn = get_db()
     if g.db_type == 'postgres':
-        with conn.cursor() as cur:
-            cur.execute(sql)
+        cur = conn.cursor()
+        cur.execute(sql + ' RETURNING id', params)
+        return cur.fetchone()[0]
     else:
-        conn.executescript(sql)
+        cur = conn.execute(sql, params)
+        return cur.lastrowid
 
 
 def commit():
     get_db().commit()
 
 
-def lastrowid(sql, params=()):
-    """INSERT … RETURNING id for postgres, lastrowid for sqlite."""
-    conn = get_db()
-    if g.db_type == 'postgres':
-        with conn.cursor() as cur:
-            cur.execute(sql + ' RETURNING id', params)
-            return cur.fetchone()[0]
-    else:
-        cur = conn.execute(sql, params)
-        return cur.lastrowid
-
-
-@app.teardown_appcontext
-def close_db(e=None):
-    conn = g.pop('db', None)
-    if conn:
-        conn.close()
-
-
 # ── Schema ────────────────────────────────────────────────────────────────────
 
-SCHEMA_PG = '''
-CREATE TABLE IF NOT EXISTS korisnici (
-    id SERIAL PRIMARY KEY,
-    ime TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL,
-    lozinka TEXT NOT NULL,
-    uloga TEXT NOT NULL CHECK(uloga IN ('razrednik', 'administrator')),
-    razred_id INTEGER REFERENCES razredi(id)
-);
-CREATE TABLE IF NOT EXISTS razredi (
-    id SERIAL PRIMARY KEY,
-    naziv TEXT NOT NULL,
-    razina INTEGER NOT NULL,
-    skolska_godina TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS predmeti (
-    id SERIAL PRIMARY KEY,
-    naziv TEXT NOT NULL,
-    razina INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS vraceno (
-    id SERIAL PRIMARY KEY,
-    razred_id INTEGER NOT NULL REFERENCES razredi(id),
-    predmet_id INTEGER NOT NULL REFERENCES predmeti(id),
-    kolicina INTEGER NOT NULL DEFAULT 0,
-    skolska_godina TEXT NOT NULL,
-    korisnik_id INTEGER REFERENCES korisnici(id),
-    datum DATE DEFAULT CURRENT_DATE,
-    UNIQUE(razred_id, predmet_id, skolska_godina)
-);
-CREATE TABLE IF NOT EXISTS rezerva (
-    id SERIAL PRIMARY KEY,
-    razina INTEGER NOT NULL,
-    predmet_id INTEGER NOT NULL REFERENCES predmeti(id),
-    kolicina INTEGER NOT NULL DEFAULT 0,
-    skolska_godina TEXT NOT NULL,
-    UNIQUE(razina, predmet_id, skolska_godina)
-);
-CREATE TABLE IF NOT EXISTS upisi (
-    id SERIAL PRIMARY KEY,
-    razina INTEGER NOT NULL,
-    broj_ucenika INTEGER NOT NULL DEFAULT 0,
-    skolska_godina TEXT NOT NULL,
-    UNIQUE(razina, skolska_godina)
-);
-'''
-
-SCHEMA_SQLITE = '''
-CREATE TABLE IF NOT EXISTS razredi (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    naziv TEXT NOT NULL,
-    razina INTEGER NOT NULL,
-    skolska_godina TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS predmeti (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    naziv TEXT NOT NULL,
-    razina INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS korisnici (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ime TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL,
-    lozinka TEXT NOT NULL,
-    uloga TEXT NOT NULL CHECK(uloga IN ('razrednik', 'administrator')),
-    razred_id INTEGER REFERENCES razredi(id)
-);
-CREATE TABLE IF NOT EXISTS vraceno (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    razred_id INTEGER NOT NULL REFERENCES razredi(id),
-    predmet_id INTEGER NOT NULL REFERENCES predmeti(id),
-    kolicina INTEGER NOT NULL DEFAULT 0,
-    skolska_godina TEXT NOT NULL,
-    korisnik_id INTEGER REFERENCES korisnici(id),
-    datum TEXT DEFAULT (date('now')),
-    UNIQUE(razred_id, predmet_id, skolska_godina)
-);
-CREATE TABLE IF NOT EXISTS rezerva (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    razina INTEGER NOT NULL,
-    predmet_id INTEGER NOT NULL REFERENCES predmeti(id),
-    kolicina INTEGER NOT NULL DEFAULT 0,
-    skolska_godina TEXT NOT NULL,
-    UNIQUE(razina, predmet_id, skolska_godina)
-);
-CREATE TABLE IF NOT EXISTS upisi (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    razina INTEGER NOT NULL,
-    broj_ucenika INTEGER NOT NULL DEFAULT 0,
-    skolska_godina TEXT NOT NULL,
-    UNIQUE(razina, skolska_godina)
-);
-'''
-
-
 def init_db():
-    with app.app_context():
-        if USE_POSTGRES:
-            executescript(SCHEMA_PG)
-        else:
-            executescript(SCHEMA_SQLITE)
-        commit()
-        _seed_data()
+    if USE_POSTGRES:
+        _init_postgres()
+    else:
+        _init_sqlite()
+    commit()
+    _seed_data()
+
+
+def _init_postgres():
+    stmts = [
+        '''CREATE TABLE IF NOT EXISTS razredi (
+            id SERIAL PRIMARY KEY,
+            naziv TEXT NOT NULL,
+            razina INTEGER NOT NULL,
+            skolska_godina TEXT NOT NULL
+        )''',
+        '''CREATE TABLE IF NOT EXISTS predmeti (
+            id SERIAL PRIMARY KEY,
+            naziv TEXT NOT NULL,
+            razina INTEGER NOT NULL
+        )''',
+        '''CREATE TABLE IF NOT EXISTS korisnici (
+            id SERIAL PRIMARY KEY,
+            ime TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            lozinka TEXT NOT NULL,
+            uloga TEXT NOT NULL,
+            razred_id INTEGER REFERENCES razredi(id)
+        )''',
+        '''CREATE TABLE IF NOT EXISTS vraceno (
+            id SERIAL PRIMARY KEY,
+            razred_id INTEGER NOT NULL REFERENCES razredi(id),
+            predmet_id INTEGER NOT NULL REFERENCES predmeti(id),
+            kolicina INTEGER NOT NULL DEFAULT 0,
+            skolska_godina TEXT NOT NULL,
+            korisnik_id INTEGER REFERENCES korisnici(id),
+            datum DATE DEFAULT CURRENT_DATE,
+            UNIQUE(razred_id, predmet_id, skolska_godina)
+        )''',
+        '''CREATE TABLE IF NOT EXISTS rezerva (
+            id SERIAL PRIMARY KEY,
+            razina INTEGER NOT NULL,
+            predmet_id INTEGER NOT NULL REFERENCES predmeti(id),
+            kolicina INTEGER NOT NULL DEFAULT 0,
+            skolska_godina TEXT NOT NULL,
+            UNIQUE(razina, predmet_id, skolska_godina)
+        )''',
+        '''CREATE TABLE IF NOT EXISTS upisi (
+            id SERIAL PRIMARY KEY,
+            razina INTEGER NOT NULL,
+            broj_ucenika INTEGER NOT NULL DEFAULT 0,
+            skolska_godina TEXT NOT NULL,
+            UNIQUE(razina, skolska_godina)
+        )''',
+    ]
+    for stmt in stmts:
+        execute(stmt)
+
+
+def _init_sqlite():
+    conn = get_db()
+    conn.executescript('''
+        CREATE TABLE IF NOT EXISTS razredi (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            naziv TEXT NOT NULL, razina INTEGER NOT NULL, skolska_godina TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS predmeti (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            naziv TEXT NOT NULL, razina INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS korisnici (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ime TEXT NOT NULL, email TEXT UNIQUE NOT NULL, lozinka TEXT NOT NULL,
+            uloga TEXT NOT NULL, razred_id INTEGER REFERENCES razredi(id)
+        );
+        CREATE TABLE IF NOT EXISTS vraceno (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            razred_id INTEGER NOT NULL, predmet_id INTEGER NOT NULL,
+            kolicina INTEGER NOT NULL DEFAULT 0, skolska_godina TEXT NOT NULL,
+            korisnik_id INTEGER, datum TEXT DEFAULT (date(\'now\')),
+            UNIQUE(razred_id, predmet_id, skolska_godina)
+        );
+        CREATE TABLE IF NOT EXISTS rezerva (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            razina INTEGER NOT NULL, predmet_id INTEGER NOT NULL,
+            kolicina INTEGER NOT NULL DEFAULT 0, skolska_godina TEXT NOT NULL,
+            UNIQUE(razina, predmet_id, skolska_godina)
+        );
+        CREATE TABLE IF NOT EXISTS upisi (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            razina INTEGER NOT NULL, broj_ucenika INTEGER NOT NULL DEFAULT 0,
+            skolska_godina TEXT NOT NULL, UNIQUE(razina, skolska_godina)
+        );
+    ''')
 
 
 def _seed_data():
     from werkzeug.security import generate_password_hash
+    ph = '%s' if USE_POSTGRES else '?'
 
-    rows = query('SELECT COUNT(*) as c FROM korisnici', one=True)
-    count = rows['c'] if rows else 0
-    if count > 0:
+    row = query('SELECT COUNT(*) as c FROM korisnici', one=True)
+    if row and row['c'] > 0:
         return
 
     godina = '2025/2026'
-    razine = list(range(1, 9))
-    odjeljenja = ['A', 'B', 'C']
-
     razred_ids = {}
-    for r in razine:
-        for o in odjeljenja:
-            naziv = f'{r}.{o}'
+    for r in range(1, 9):
+        for o in ['A', 'B', 'C']:
             rid = lastrowid(
-                'INSERT INTO razredi (naziv, razina, skolska_godina) VALUES (%s, %s, %s)'
-                if USE_POSTGRES else
-                'INSERT INTO razredi (naziv, razina, skolska_godina) VALUES (?, ?, ?)',
-                (naziv, r, godina)
+                f'INSERT INTO razredi (naziv, razina, skolska_godina) VALUES ({ph}, {ph}, {ph})',
+                (f'{r}.{o}', r, godina)
             )
             razred_ids[(r, o)] = rid
 
@@ -237,7 +232,6 @@ def _seed_data():
         8: ['Hrvatski jezik', 'Matematika', 'Fizika', 'Kemija', 'Biologija', 'Geografija', 'Povijest', 'Likovna kultura', 'Glazbena kultura', 'Tjelesna i zdravstvena kultura', 'Engleski jezik', 'Informatika'],
     }
 
-    ph = '%s' if USE_POSTGRES else '?'
     predmet_ids = {}
     for razina, predmeti in predmeti_po_razini.items():
         for naziv in predmeti:
@@ -256,38 +250,37 @@ def _seed_data():
     )
 
     razrednik_data = [
-        ('Marija Kovač', 'razrednik1a@skola.hr', (1, 'A')),
-        ('Ivan Horvat', 'razrednik1b@skola.hr', (1, 'B')),
-        ('Ana Perić', 'razrednik1c@skola.hr', (1, 'C')),
-        ('Petra Novak', 'razrednik2a@skola.hr', (2, 'A')),
-        ('Josip Babić', 'razrednik2b@skola.hr', (2, 'B')),
-        ('Lucija Tomić', 'razrednik2c@skola.hr', (2, 'C')),
-        ('Tomislav Jurić', 'razrednik3a@skola.hr', (3, 'A')),
-        ('Sandra Marić', 'razrednik3b@skola.hr', (3, 'B')),
-        ('Damir Vidović', 'razrednik3c@skola.hr', (3, 'C')),
-        ('Vesna Blažić', 'razrednik4a@skola.hr', (4, 'A')),
-        ('Nikola Pavić', 'razrednik4b@skola.hr', (4, 'B')),
-        ('Kristina Vuković', 'razrednik4c@skola.hr', (4, 'C')),
-        ('Mario Filipović', 'razrednik5a@skola.hr', (5, 'A')),
-        ('Đurđica Knežević', 'razrednik5b@skola.hr', (5, 'B')),
-        ('Stjepan Majić', 'razrednik5c@skola.hr', (5, 'C')),
-        ('Mirela Lončar', 'razrednik6a@skola.hr', (6, 'A')),
-        ('Dragan Šimić', 'razrednik6b@skola.hr', (6, 'B')),
-        ('Renata Bogdanović', 'razrednik6c@skola.hr', (6, 'C')),
-        ('Zlatko Đukić', 'razrednik7a@skola.hr', (7, 'A')),
-        ('Helena Miletić', 'razrednik7b@skola.hr', (7, 'B')),
-        ('Krešimir Rukavina', 'razrednik7c@skola.hr', (7, 'C')),
-        ('Dijana Galić', 'razrednik8a@skola.hr', (8, 'A')),
-        ('Boris Živković', 'razrednik8b@skola.hr', (8, 'B')),
-        ('Tatjana Radić', 'razrednik8c@skola.hr', (8, 'C')),
+        ('Marija Kovač',    'razrednik1a@skola.hr', (1,'A')),
+        ('Ivan Horvat',     'razrednik1b@skola.hr', (1,'B')),
+        ('Ana Perić',       'razrednik1c@skola.hr', (1,'C')),
+        ('Petra Novak',     'razrednik2a@skola.hr', (2,'A')),
+        ('Josip Babić',     'razrednik2b@skola.hr', (2,'B')),
+        ('Lucija Tomić',    'razrednik2c@skola.hr', (2,'C')),
+        ('Tomislav Jurić',  'razrednik3a@skola.hr', (3,'A')),
+        ('Sandra Marić',    'razrednik3b@skola.hr', (3,'B')),
+        ('Damir Vidović',   'razrednik3c@skola.hr', (3,'C')),
+        ('Vesna Blažić',    'razrednik4a@skola.hr', (4,'A')),
+        ('Nikola Pavić',    'razrednik4b@skola.hr', (4,'B')),
+        ('Kristina Vuković','razrednik4c@skola.hr', (4,'C')),
+        ('Mario Filipović', 'razrednik5a@skola.hr', (5,'A')),
+        ('Đurđica Knežević','razrednik5b@skola.hr', (5,'B')),
+        ('Stjepan Majić',   'razrednik5c@skola.hr', (5,'C')),
+        ('Mirela Lončar',   'razrednik6a@skola.hr', (6,'A')),
+        ('Dragan Šimić',    'razrednik6b@skola.hr', (6,'B')),
+        ('Renata Bogdanović','razrednik6c@skola.hr',(6,'C')),
+        ('Zlatko Đukić',    'razrednik7a@skola.hr', (7,'A')),
+        ('Helena Miletić',  'razrednik7b@skola.hr', (7,'B')),
+        ('Krešimir Rukavina','razrednik7c@skola.hr',(7,'C')),
+        ('Dijana Galić',    'razrednik8a@skola.hr', (8,'A')),
+        ('Boris Živković',  'razrednik8b@skola.hr', (8,'B')),
+        ('Tatjana Radić',   'razrednik8c@skola.hr', (8,'C')),
     ]
 
     lozinka = generate_password_hash('razrednik123')
-    for ime, email, (razina, odjeljenje) in razrednik_data:
-        rid = razred_ids[(razina, odjeljenje)]
+    for ime, email, (razina, odj) in razrednik_data:
         execute(
-            f'INSERT INTO korisnici (ime, email, lozinka, uloga, razred_id) VALUES ({ph}, {ph}, {ph}, {ph}, {ph})',
-            (ime, email, lozinka, 'razrednik', rid)
+            f'INSERT INTO korisnici (ime, email, lozinka, uloga, razred_id) VALUES ({ph},{ph},{ph},{ph},{ph})',
+            (ime, email, lozinka, 'razrednik', razred_ids[(razina, odj)])
         )
 
     commit()
@@ -316,7 +309,23 @@ def admin_required(f):
     return decorated
 
 
+def _tekuca_godina():
+    row = query('SELECT skolska_godina FROM razredi LIMIT 1', one=True)
+    return (row['skolska_godina'] if row else '2025/2026')
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
+
+@app.before_request
+def ensure_db():
+    """Initialize DB on first request (lazy, safe for serverless)."""
+    if request.endpoint in ('static',):
+        return
+    try:
+        init_db()
+    except Exception:
+        pass  # already initialized
+
 
 @app.route('/')
 def index():
@@ -379,18 +388,14 @@ def moj_razred():
                     INSERT INTO vraceno (razred_id, predmet_id, kolicina, skolska_godina, korisnik_id, datum)
                     VALUES (%s, %s, %s, %s, %s, CURRENT_DATE)
                     ON CONFLICT(razred_id, predmet_id, skolska_godina)
-                    DO UPDATE SET kolicina = EXCLUDED.kolicina,
-                                  korisnik_id = EXCLUDED.korisnik_id,
-                                  datum = CURRENT_DATE
+                    DO UPDATE SET kolicina = EXCLUDED.kolicina, korisnik_id = EXCLUDED.korisnik_id, datum = CURRENT_DATE
                 ''', (razred_id, predmet['id'], kolicina, godina, session['korisnik_id']))
             else:
                 execute('''
                     INSERT INTO vraceno (razred_id, predmet_id, kolicina, skolska_godina, korisnik_id, datum)
                     VALUES (?, ?, ?, ?, ?, date('now'))
                     ON CONFLICT(razred_id, predmet_id, skolska_godina)
-                    DO UPDATE SET kolicina = excluded.kolicina,
-                                  korisnik_id = excluded.korisnik_id,
-                                  datum = excluded.datum
+                    DO UPDATE SET kolicina = excluded.kolicina, korisnik_id = excluded.korisnik_id, datum = excluded.datum
                 ''', (razred_id, predmet['id'], kolicina, godina, session['korisnik_id']))
         commit()
         flash('Podaci su uspješno spremljeni.', 'success')
@@ -403,7 +408,6 @@ def moj_razred():
             (razred_id, godina)
         )
     }
-
     return render_template('moj_razred.html', razred=razred, predmeti=predmeti,
                            vraceno_map=vraceno_map, godina=godina)
 
@@ -422,7 +426,7 @@ def rezerva():
                 kolicina = int(request.form.get(f'o_{razina}_{predmet["id"]}', 0) or 0)
                 execute(
                     f'''INSERT INTO rezerva (razina, predmet_id, kolicina, skolska_godina)
-                        VALUES ({ph}, {ph}, {ph}, {ph})
+                        VALUES ({ph},{ph},{ph},{ph})
                         ON CONFLICT(razina, predmet_id, skolska_godina)
                         DO UPDATE SET kolicina = EXCLUDED.kolicina''',
                     (razina, predmet['id'], kolicina, godina)
@@ -433,9 +437,7 @@ def rezerva():
 
     data = {}
     for razina in razine:
-        predmeti = query(
-            f'SELECT * FROM predmeti WHERE razina = {ph} ORDER BY naziv', (razina,)
-        )
+        predmeti = query(f'SELECT * FROM predmeti WHERE razina = {ph} ORDER BY naziv', (razina,))
         rezerve = {
             row['predmet_id']: row['kolicina']
             for row in query(
@@ -460,7 +462,7 @@ def upisi():
             broj = int(request.form.get(f'n_{razina}', 0) or 0)
             execute(
                 f'''INSERT INTO upisi (razina, broj_ucenika, skolska_godina)
-                    VALUES ({ph}, {ph}, {ph})
+                    VALUES ({ph},{ph},{ph})
                     ON CONFLICT(razina, skolska_godina)
                     DO UPDATE SET broj_ucenika = EXCLUDED.broj_ucenika''',
                 (razina, broj, godina)
@@ -471,11 +473,8 @@ def upisi():
 
     upisi_map = {
         row['razina']: row['broj_ucenika']
-        for row in query(
-            f'SELECT razina, broj_ucenika FROM upisi WHERE skolska_godina = {ph}', (godina,)
-        )
+        for row in query(f'SELECT razina, broj_ucenika FROM upisi WHERE skolska_godina = {ph}', (godina,))
     }
-
     return render_template('upisi.html', razine=razine, upisi_map=upisi_map, godina=godina)
 
 
@@ -488,24 +487,17 @@ def izvjestaj():
 
     upisi_map = {
         row['razina']: row['broj_ucenika']
-        for row in query(
-            f'SELECT razina, broj_ucenika FROM upisi WHERE skolska_godina = {ph}', (godina,)
-        )
+        for row in query(f'SELECT razina, broj_ucenika FROM upisi WHERE skolska_godina = {ph}', (godina,))
     }
-
     rezerva_map = {
         (row['razina'], row['predmet_id']): row['kolicina']
-        for row in query(
-            f'SELECT razina, predmet_id, kolicina FROM rezerva WHERE skolska_godina = {ph}', (godina,)
-        )
+        for row in query(f'SELECT razina, predmet_id, kolicina FROM rezerva WHERE skolska_godina = {ph}', (godina,))
     }
-
     vraceno_po_razini = {
         (row['razina'], row['predmet_id']): row['ukupno']
         for row in query(f'''
             SELECT r.razina, v.predmet_id, SUM(v.kolicina) as ukupno
-            FROM vraceno v
-            JOIN razredi r ON v.razred_id = r.id
+            FROM vraceno v JOIN razredi r ON v.razred_id = r.id
             WHERE v.skolska_godina = {ph}
             GROUP BY r.razina, v.predmet_id
         ''', (godina,))
@@ -513,22 +505,16 @@ def izvjestaj():
 
     izvjestaj_data = []
     narudzba = []
-
     for razina in razine:
-        predmeti = query(
-            f'SELECT * FROM predmeti WHERE razina = {ph} ORDER BY naziv', (razina,)
-        )
+        predmeti = query(f'SELECT * FROM predmeti WHERE razina = {ph} ORDER BY naziv', (razina,))
         n = upisi_map.get(razina, 0)
         redovi = []
         for predmet in predmeti:
             v = vraceno_po_razini.get((razina, predmet['id']), 0)
             o = rezerva_map.get((razina, predmet['id']), 0)
             x = max(0, n - (v + o))
-            redovi.append({
-                'predmet': predmet['naziv'],
-                'predmet_id': predmet['id'],
-                'v': v, 'o': o, 'n': n, 'x': x
-            })
+            redovi.append({'predmet': predmet['naziv'], 'predmet_id': predmet['id'],
+                           'v': v, 'o': o, 'n': n, 'x': x})
             if x > 0:
                 narudzba.append({'razina': razina, 'predmet': predmet['naziv'],
                                  'predmet_id': predmet['id'], 'x': x})
@@ -543,22 +529,13 @@ def izvjestaj():
 def korisnici():
     svi = query('''
         SELECT k.id, k.ime, k.email, k.uloga, r.naziv as razred_naziv
-        FROM korisnici k
-        LEFT JOIN razredi r ON k.razred_id = r.id
+        FROM korisnici k LEFT JOIN razredi r ON k.razred_id = r.id
         ORDER BY k.uloga, k.ime
     ''')
     return render_template('korisnici.html', korisnici=svi)
 
 
-def _tekuca_godina():
-    row = query('SELECT skolska_godina FROM razredi LIMIT 1', one=True)
-    return row['skolska_godina'] if row else '2025/2026'
-
-
-# ── Entry point ───────────────────────────────────────────────────────────────
-
-with app.app_context():
-    init_db()
-
 if __name__ == '__main__':
+    with app.app_context():
+        init_db()
     app.run(host='0.0.0.0', port=5000, debug=False)

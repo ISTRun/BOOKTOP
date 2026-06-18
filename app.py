@@ -35,7 +35,8 @@ def get_db():
             g.db_type = 'postgres'
         else:
             import sqlite3
-            conn = sqlite3.connect('booktop.db')
+            db_path = '/tmp/booktop.db' if os.path.exists('/tmp') and not os.access('.', os.W_OK) else 'booktop.db'
+            conn = sqlite3.connect(db_path)
             conn.row_factory = sqlite3.Row
             g.db = conn
             g.db_type = 'sqlite'

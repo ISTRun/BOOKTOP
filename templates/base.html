@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}BOOKTOP — Knjižnica{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+{% if session.get('korisnik_id') %}
+<nav class="navbar">
+    <div class="nav-brand">📚 BOOKTOP</div>
+    <div class="nav-links">
+        {% if session.get('uloga') == 'administrator' %}
+            <a href="{{ url_for('rezerva') }}" {% if request.endpoint == 'rezerva' %}class="active"{% endif %}>Rezerva (O)</a>
+            <a href="{{ url_for('upisi') }}" {% if request.endpoint == 'upisi' %}class="active"{% endif %}>Upisi (N)</a>
+            <a href="{{ url_for('izvjestaj') }}" {% if request.endpoint == 'izvjestaj' %}class="active"{% endif %}>Izvještaj</a>
+            <a href="{{ url_for('korisnici') }}" {% if request.endpoint == 'korisnici' %}class="active"{% endif %}>Korisnici</a>
+        {% else %}
+            <a href="{{ url_for('moj_razred') }}" {% if request.endpoint == 'moj_razred' %}class="active"{% endif %}>Moj razred</a>
+        {% endif %}
+    </div>
+    <div class="nav-user">
+        <span>{{ session.get('ime') }}</span>
+        <a href="{{ url_for('logout') }}" class="btn-logout">Odjava</a>
+    </div>
+</nav>
+{% endif %}
+
+<main class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+</main>
+</body>
+</html>

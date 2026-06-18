@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block title %}Prijava — BOOKTOP{% endblock %}
+{% block content %}
+<div class="login-wrap">
+    <div class="login-box">
+        <h1>📚 BOOKTOP</h1>
+        <p class="subtitle">Fond knjiga školske knjižnice</p>
+        <form method="POST">
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required autofocus
+                       placeholder="email@skola.hr">
+            </div>
+            <div class="form-group">
+                <label for="lozinka">Lozinka</label>
+                <input type="password" id="lozinka" name="lozinka" required
+                       placeholder="••••••••">
+            </div>
+            <button type="submit" class="btn btn-primary btn-full">Prijava</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

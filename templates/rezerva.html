@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block title %}Rezerva (O) — BOOKTOP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h2>Rezerva knjiga (O)</h2>
+    <span class="badge">Školska godina {{ godina }}</span>
+</div>
+<p class="help-text">Unesite broj knjiga koje su <strong>preostale od prijašnjih godina</strong> (rezerva O) za svaki razred i predmet.</p>
+
+<form method="POST">
+    {% for razina in razine %}
+    <div class="razina-section">
+        <h3>{{ razina }}. razred</h3>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Predmet</th>
+                        <th class="num-col">Rezerva (O)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for predmet in data[razina].predmeti %}
+                    <tr>
+                        <td>{{ predmet.naziv }}</td>
+                        <td class="num-col">
+                            <input type="number"
+                                   name="o_{{ razina }}_{{ predmet.id }}"
+                                   value="{{ data[razina].rezerve.get(predmet.id, 0) }}"
+                                   min="0" class="num-input">
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">💾 Spremi rezervu</button>
+    </div>
+</form>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block title %}Moj razred — {{ razred.naziv }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h2>Razred: <strong>{{ razred.naziv }}</strong></h2>
+    <span class="badge">Školska godina {{ godina }}</span>
+</div>
+<p class="help-text">Unesite broj knjiga koje su učenici <strong>vratili</strong> (V) za svaki predmet.</p>
+
+<form method="POST">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Predmet</th>
+                    <th class="num-col">Vraćeno (V)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for predmet in predmeti %}
+                <tr>
+                    <td>{{ predmet.naziv }}</td>
+                    <td class="num-col">
+                        <input type="number" name="v_{{ predmet.id }}"
+                               value="{{ vraceno_map.get(predmet.id, 0) }}"
+                               min="0" class="num-input">
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">💾 Spremi</button>
+    </div>
+</form>
+{% endblock %}

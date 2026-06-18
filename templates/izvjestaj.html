@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% block title %}Izvještaj — BOOKTOP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h2>Izvještaj — narudžba knjiga</h2>
+    <span class="badge">Školska godina {{ godina }}</span>
+</div>
+
+{% for razina_data in izvjestaj_data %}
+<div class="razina-section">
+    <h3>{{ razina_data.razina }}. razred
+        <span class="n-badge">N = {{ razina_data.n }} učenika</span>
+    </h3>
+    <div class="table-wrap">
+        <table class="izvjestaj-table">
+            <thead>
+                <tr>
+                    <th>Predmet</th>
+                    <th class="num-col" title="Vraćene knjige (zbroj svih odjeljenja)">V</th>
+                    <th class="num-col" title="Rezerva iz prošlih godina">O</th>
+                    <th class="num-col" title="Broj upisanih učenika">N</th>
+                    <th class="num-col" title="Potrebno naručiti: X = N − (V + O)">X</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for red in razina_data.redovi %}
+                <tr {% if red.x > 0 %}class="needs-order"{% endif %}>
+                    <td>{{ red.predmet }}</td>
+                    <td class="num-col">{{ red.v }}</td>
+                    <td class="num-col">{{ red.o }}</td>
+                    <td class="num-col">{{ red.n }}</td>
+                    <td class="num-col {% if red.x > 0 %}x-positive{% endif %}">
+                        {% if red.x > 0 %}<strong>{{ red.x }}</strong>{% else %}—{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endfor %}
+
+<div class="narudzba-section">
+    <h2>📋 Zbirni popis za narudžbu</h2>
+    {% if narudzba %}
+    <div class="table-wrap table-narrow">
+        <table>
+            <thead>
+                <tr>
+                    <th>Razred</th>
+                    <th>Predmet</th>
+                    <th class="num-col">Naručiti (X)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for stavka in narudzba %}
+                <tr>
+                    <td>{{ stavka.razina }}. razred</td>
+                    <td>{{ stavka.predmet }}</td>
+                    <td class="num-col"><strong>{{ stavka.x }}</strong></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="2"><strong>Ukupno knjiga za naručiti:</strong></td>
+                    <td class="num-col"><strong>{{ narudzba | sum(attribute='x') }}</strong></td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+    {% else %}
+    <p class="no-orders">✅ Nema knjiga za naručiti — zalihe su dovoljne za sve razrede.</p>
+    {% endif %}
+</div>
+{% endblock %}

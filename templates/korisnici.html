@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Korisnici — BOOKTOP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h2>Popis korisnika</h2>
+</div>
+
+<div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Ime</th>
+                <th>Email</th>
+                <th>Uloga</th>
+                <th>Razred</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for k in korisnici %}
+            <tr>
+                <td>{{ k.ime }}</td>
+                <td>{{ k.email }}</td>
+                <td>
+                    {% if k.uloga == 'administrator' %}
+                        <span class="role-badge role-admin">Administrator</span>
+                    {% else %}
+                        <span class="role-badge role-razrednik">Razrednik</span>
+                    {% endif %}
+                </td>
+                <td>{{ k.razred_naziv or '—' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="info-box">
+    <strong>Početne lozinke:</strong><br>
+    Administrator: <code>admin123</code><br>
+    Razrednici: <code>razrednik123</code>
+</div>
+{% endblock %}

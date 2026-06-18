@@ -182,13 +182,11 @@ def _seed_data():
         return
 
     godina = '2025/2026'
-    razred_ids = {}
     for r in range(1, 9):
         for o in ['A', 'B', 'C']:
-            rid = lastrowid(
+            lastrowid(
                 f'INSERT INTO razredi (naziv, razina, skolska_godina) VALUES ({ph},{ph},{ph})',
                 (f'{r}.{o}', r, godina))
-            razred_ids[(r, o)] = rid
 
     predmeti_po_razini = {
         1: ['Hrvatski jezik', 'Matematika', 'Priroda i društvo', 'Likovna kultura', 'Glazbena kultura', 'Tjelesna i zdravstvena kultura'],
@@ -214,38 +212,6 @@ def _seed_data():
     admin_pass = generate_password_hash('admin123')
     execute(f'INSERT INTO korisnici (ime, email, lozinka, uloga) VALUES ({ph},{ph},{ph},{ph})',
             ('Knjižničarka', 'admin@skola.hr', admin_pass, 'administrator'))
-
-    razrednik_data = [
-        ('Marija Kovač',     'razrednik1a@skola.hr', (1,'A')),
-        ('Ivan Horvat',      'razrednik1b@skola.hr', (1,'B')),
-        ('Ana Perić',        'razrednik1c@skola.hr', (1,'C')),
-        ('Petra Novak',      'razrednik2a@skola.hr', (2,'A')),
-        ('Josip Babić',      'razrednik2b@skola.hr', (2,'B')),
-        ('Lucija Tomić',     'razrednik2c@skola.hr', (2,'C')),
-        ('Tomislav Jurić',   'razrednik3a@skola.hr', (3,'A')),
-        ('Sandra Marić',     'razrednik3b@skola.hr', (3,'B')),
-        ('Damir Vidović',    'razrednik3c@skola.hr', (3,'C')),
-        ('Vesna Blažić',     'razrednik4a@skola.hr', (4,'A')),
-        ('Nikola Pavić',     'razrednik4b@skola.hr', (4,'B')),
-        ('Kristina Vuković', 'razrednik4c@skola.hr', (4,'C')),
-        ('Mario Filipović',  'razrednik5a@skola.hr', (5,'A')),
-        ('Đurđica Knežević', 'razrednik5b@skola.hr', (5,'B')),
-        ('Stjepan Majić',    'razrednik5c@skola.hr', (5,'C')),
-        ('Mirela Lončar',    'razrednik6a@skola.hr', (6,'A')),
-        ('Dragan Šimić',     'razrednik6b@skola.hr', (6,'B')),
-        ('Renata Bogdanović','razrednik6c@skola.hr', (6,'C')),
-        ('Zlatko Đukić',     'razrednik7a@skola.hr', (7,'A')),
-        ('Helena Miletić',   'razrednik7b@skola.hr', (7,'B')),
-        ('Krešimir Rukavina','razrednik7c@skola.hr', (7,'C')),
-        ('Dijana Galić',     'razrednik8a@skola.hr', (8,'A')),
-        ('Boris Živković',   'razrednik8b@skola.hr', (8,'B')),
-        ('Tatjana Radić',    'razrednik8c@skola.hr', (8,'C')),
-    ]
-    lozinka = generate_password_hash('razrednik123')
-    for ime, email, (razina, odj) in razrednik_data:
-        execute(
-            f'INSERT INTO korisnici (ime, email, lozinka, uloga, razred_id) VALUES ({ph},{ph},{ph},{ph},{ph})',
-            (ime, email, lozinka, 'razrednik', razred_ids[(razina, odj)]))
     commit()
 
 
@@ -284,7 +250,7 @@ def admin_required(f):
 
 
 def _tekuca_godina():
-    row = query('SELECT skolska_godina FROM razredi LIMIT 1', one=True)
+    row = query('SELECT skolska_godina FROM razredi ORDER BY skolska_godina DESC LIMIT 1', one=True)
     return row['skolska_godina'] if row else '2025/2026'
 
 
@@ -293,7 +259,6 @@ def _tekuca_godina():
 @app.route('/debug-init')
 def debug_init():
     """Temporary route to diagnose DB connection issues."""
-    import traceback
     info = {
         'USE_POSTGRES': USE_POSTGRES,
         'DATABASE_URL_set': bool(DATABASE_URL),
@@ -503,6 +468,154 @@ def korisnici():
         ORDER BY k.uloga, k.ime
     ''')
     return render_template('korisnici.html', korisnici=svi)
+
+
+@app.route('/korisnici/novi', methods=['GET', 'POST'])
+@admin_required
+def novi_korisnik():
+    from werkzeug.security import generate_password_hash
+    ph = '%s' if USE_POSTGRES else '?'
+    godina = _tekuca_godina()
+    razredi = query(
+        f'SELECT * FROM razredi WHERE skolska_godina={ph} ORDER BY razina, naziv',
+        (godina,))
+
+    if request.method == 'POST':
+        ime = request.form['ime'].strip()
+        email = request.form['email'].strip().lower()
+        lozinka = request.form['lozinka']
+        uloga = request.form['uloga']
+        razred_id = request.form.get('razred_id') or None
+        if razred_id:
+            razred_id = int(razred_id)
+
+        if not ime or not email or not lozinka:
+            flash('Ime, email i lozinka su obavezni.', 'danger')
+        else:
+            hashed = generate_password_hash(lozinka)
+            try:
+                execute(
+                    f'INSERT INTO korisnici (ime, email, lozinka, uloga, razred_id) VALUES ({ph},{ph},{ph},{ph},{ph})',
+                    (ime, email, hashed, uloga, razred_id))
+                commit()
+                flash('Korisnik je uspješno dodan.', 'success')
+                return redirect(url_for('korisnici'))
+            except Exception as e:
+                flash(f'Greška: email već postoji ili drugi problem. ({e})', 'danger')
+
+    return render_template('korisnik_forma.html', korisnik=None, razredi=razredi, akcija='novi')
+
+
+@app.route('/korisnici/uredi/<int:id>', methods=['GET', 'POST'])
+@admin_required
+def uredi_korisnik(id):
+    from werkzeug.security import generate_password_hash
+    ph = '%s' if USE_POSTGRES else '?'
+    korisnik = query(f'SELECT * FROM korisnici WHERE id={ph}', (id,), one=True)
+    if not korisnik:
+        flash('Korisnik nije pronađen.', 'danger')
+        return redirect(url_for('korisnici'))
+
+    godina = _tekuca_godina()
+    razredi = query(
+        f'SELECT * FROM razredi WHERE skolska_godina={ph} ORDER BY razina, naziv',
+        (godina,))
+
+    if request.method == 'POST':
+        ime = request.form['ime'].strip()
+        email = request.form['email'].strip().lower()
+        lozinka = request.form.get('lozinka', '').strip()
+        uloga = request.form['uloga']
+        razred_id = request.form.get('razred_id') or None
+        if razred_id:
+            razred_id = int(razred_id)
+
+        if not ime or not email:
+            flash('Ime i email su obavezni.', 'danger')
+        else:
+            try:
+                if lozinka:
+                    hashed = generate_password_hash(lozinka)
+                    execute(
+                        f'UPDATE korisnici SET ime={ph}, email={ph}, lozinka={ph}, uloga={ph}, razred_id={ph} WHERE id={ph}',
+                        (ime, email, hashed, uloga, razred_id, id))
+                else:
+                    execute(
+                        f'UPDATE korisnici SET ime={ph}, email={ph}, uloga={ph}, razred_id={ph} WHERE id={ph}',
+                        (ime, email, uloga, razred_id, id))
+                commit()
+                flash('Korisnik je uspješno ažuriran.', 'success')
+                return redirect(url_for('korisnici'))
+            except Exception as e:
+                flash(f'Greška pri ažuriranju. ({e})', 'danger')
+
+    return render_template('korisnik_forma.html', korisnik=korisnik, razredi=razredi, akcija='uredi')
+
+
+@app.route('/korisnici/brisi/<int:id>', methods=['POST'])
+@admin_required
+def brisi_korisnik(id):
+    ph = '%s' if USE_POSTGRES else '?'
+    if id == session['korisnik_id']:
+        flash('Ne možete obrisati vlastiti račun.', 'danger')
+        return redirect(url_for('korisnici'))
+    execute(f'DELETE FROM korisnici WHERE id={ph}', (id,))
+    commit()
+    flash('Korisnik je obrisan.', 'success')
+    return redirect(url_for('korisnici'))
+
+
+@app.route('/nova-skolska-godina', methods=['POST'])
+@admin_required
+def nova_skolska_godina():
+    ph = '%s' if USE_POSTGRES else '?'
+    tekuca = _tekuca_godina()
+
+    # Parse current year e.g. "2025/2026" -> next "2026/2027"
+    parts = tekuca.split('/')
+    try:
+        god1 = int(parts[0])
+        god2 = int(parts[1])
+    except (ValueError, IndexError):
+        flash('Neispravni format školske godine.', 'danger')
+        return redirect(url_for('korisnici'))
+    nova_godina = f'{god2}/{god2 + 1}'
+
+    # Create 24 new razredi for the new year
+    new_razred_ids = {}
+    for r in range(1, 9):
+        for o in ['A', 'B', 'C']:
+            rid = lastrowid(
+                f'INSERT INTO razredi (naziv, razina, skolska_godina) VALUES ({ph},{ph},{ph})',
+                (f'{r}.{o}', r, nova_godina))
+            new_razred_ids[(r, o)] = rid
+
+    # Update razrednici assignments
+    razrednici = query(
+        f'SELECT k.id, k.razred_id, rz.razina, rz.naziv FROM korisnici k '
+        f'JOIN razredi rz ON k.razred_id=rz.id '
+        f'WHERE k.uloga={ph} AND k.razred_id IS NOT NULL',
+        ('razrednik',))
+
+    for r in razrednici:
+        razina = r['razina']
+        naziv = r['naziv']
+        # Extract suffix: "1.A" -> "A"
+        suffix = naziv.split('.')[-1].strip() if '.' in naziv else naziv[-1]
+
+        if razina < 8:
+            novi_razred_id = new_razred_ids.get((razina + 1, suffix))
+            execute(
+                f'UPDATE korisnici SET razred_id={ph} WHERE id={ph}',
+                (novi_razred_id, r['id']))
+        else:
+            execute(
+                f'UPDATE korisnici SET razred_id=NULL WHERE id={ph}',
+                (r['id'],))
+
+    commit()
+    flash(f'Nova školska godina {nova_godina} je uspješno kreirana.', 'success')
+    return redirect(url_for('korisnici'))
 
 
 if __name__ == '__main__':

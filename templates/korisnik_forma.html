@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block title %}{% if akcija == 'novi' %}Novi korisnik{% else %}Uredi korisnika{% endif %} — BOOKTOP{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h2>{% if akcija == 'novi' %}Dodaj novog korisnika{% else %}Uredi korisnika{% endif %}</h2>
+</div>
+
+<div class="form-wrap" style="max-width:480px;">
+    <form method="post">
+        <div class="form-group">
+            <label for="ime">Ime i prezime</label>
+            <input type="text" id="ime" name="ime" class="form-control"
+                value="{{ korisnik.ime if korisnik else '' }}" required>
+        </div>
+        <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" class="form-control"
+                value="{{ korisnik.email if korisnik else '' }}" required>
+        </div>
+        <div class="form-group">
+            <label for="lozinka">Lozinka</label>
+            <input type="password" id="lozinka" name="lozinka" class="form-control"
+                {% if akcija == 'uredi' %}placeholder="Ostavite prazno za ne mijenjati"{% else %}required{% endif %}>
+        </div>
+        <div class="form-group">
+            <label for="uloga">Uloga</label>
+            <select id="uloga" name="uloga" class="form-control" onchange="toggleRazred()">
+                <option value="razrednik" {% if korisnik and korisnik.uloga == 'razrednik' %}selected{% endif %}>Razrednik</option>
+                <option value="administrator" {% if korisnik and korisnik.uloga == 'administrator' %}selected{% endif %}>Administrator</option>
+            </select>
+        </div>
+        <div class="form-group" id="razred-group">
+            <label for="razred_id">Razred</label>
+            <select id="razred_id" name="razred_id" class="form-control">
+                <option value="">— bez razreda —</option>
+                {% set prev_razina = namespace(val=0) %}
+                {% for r in razredi %}
+                    {% if r.razina != prev_razina.val %}
+                        {% if prev_razina.val != 0 %}</optgroup>{% endif %}
+                        <optgroup label="{{ r.razina }}. razred">
+                        {% set prev_razina.val = r.razina %}
+                    {% endif %}
+                    <option value="{{ r.id }}"
+                        {% if korisnik and korisnik.razred_id == r.id %}selected{% endif %}>
+                        {{ r.naziv }}
+                    </option>
+                {% endfor %}
+                {% if razredi %}</optgroup>{% endif %}
+            </select>
+        </div>
+        <div style="display:flex; gap:0.5rem; margin-top:1rem;">
+            <button type="submit" class="btn btn-primary">
+                {% if akcija == 'novi' %}Dodaj korisnika{% else %}Spremi promjene{% endif %}
+            </button>
+            <a href="{{ url_for('korisnici') }}" class="btn btn-secondary">Odustani</a>
+        </div>
+    </form>
+</div>
+
+<script>
+function toggleRazred() {
+    var uloga = document.getElementById('uloga').value;
+    var group = document.getElementById('razred-group');
+    group.style.display = (uloga === 'razrednik') ? '' : 'none';
+}
+// Run on load
+toggleRazred();
+</script>
+{% endblock %}

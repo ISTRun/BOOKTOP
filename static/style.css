@@ -167,6 +167,13 @@ body {
 .btn:active { transform: scale(.98); }
 .btn-primary { background: var(--primary); color: white; }
 .btn-primary:hover { background: var(--primary-dark); }
+.btn-secondary { background: #64748b; color: white; }
+.btn-secondary:hover { background: #475569; }
+.btn-danger { background: var(--danger); color: white; }
+.btn-danger:hover { background: #b91c1c; }
+.btn-warning { background: #d97706; color: white; }
+.btn-warning:hover { background: #b45309; }
+.btn-sm { padding: .3rem .65rem; font-size: .8rem; }
 .btn-full { width: 100%; justify-content: center; margin-top: .5rem; }
 
 .form-actions { margin-top: 1.5rem; display: flex; justify-content: flex-end; }

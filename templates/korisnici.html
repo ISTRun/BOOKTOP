@@ -3,6 +3,15 @@
 {% block content %}
 <div class="page-header">
     <h2>Popis korisnika</h2>
+    <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+        <a href="{{ url_for('novi_korisnik') }}" class="btn btn-primary">Dodaj korisnika</a>
+        <form method="post" action="{{ url_for('nova_skolska_godina') }}" style="margin:0;">
+            <button type="submit" class="btn btn-warning"
+                onclick="return confirm('Jeste li sigurni da želite kreirati novu školsku godinu? Razrednici 8. razreda bit će odspojeni od razreda.')">
+                NOVA ŠKOLSKA GODINA
+            </button>
+        </form>
+    </div>
 </div>
 
 <div class="table-wrap">
@@ -13,6 +22,7 @@
                 <th>Email</th>
                 <th>Uloga</th>
                 <th>Razred</th>
+                <th>Akcije</th>
             </tr>
         </thead>
         <tbody>
@@ -27,16 +37,17 @@
                         <span class="role-badge role-razrednik">Razrednik</span>
                     {% endif %}
                 </td>
-                <td>{{ k.razred_naziv or '—' }}</td>
+                <td>{{ k.razred_naziv or 'Bez razreda' }}</td>
+                <td>
+                    <a href="{{ url_for('uredi_korisnik', id=k.id) }}" class="btn btn-sm btn-secondary">Uredi</a>
+                    <form method="post" action="{{ url_for('brisi_korisnik', id=k.id) }}" style="display:inline;">
+                        <button type="submit" class="btn btn-sm btn-danger"
+                            onclick="return confirm('Obrisati korisnika {{ k.ime }}?')">Obriši</button>
+                    </form>
+                </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
-</div>
-
-<div class="info-box">
-    <strong>Početne lozinke:</strong><br>
-    Administrator: <code>admin123</code><br>
-    Razrednici: <code>razrednik123</code>
 </div>
 {% endblock %}

@@ -34,9 +34,13 @@ def get_db():
             g.db = pg.connect(**_parse_pg_url(DATABASE_URL))
             g.db_type = 'postgres'
         else:
+            if os.environ.get('VERCEL') or os.environ.get('VERCEL_ENV'):
+                raise RuntimeError(
+                    'DATABASE_URL nije postavljen! Dodajte PostgreSQL (Neon) vezu '
+                    'u Vercel Environment Variables pod imenom DATABASE_URL.'
+                )
             import sqlite3
-            db_path = '/tmp/booktop.db' if os.path.exists('/tmp') and not os.access('.', os.W_OK) else 'booktop.db'
-            conn = sqlite3.connect(db_path)
+            conn = sqlite3.connect('booktop.db')
             conn.row_factory = sqlite3.Row
             g.db = conn
             g.db_type = 'sqlite'
@@ -320,20 +324,21 @@ def _tekuca_godina():
 
 @app.route('/debug-init')
 def debug_init():
-    """Temporary route to diagnose DB connection issues."""
     info = {
         'USE_POSTGRES': USE_POSTGRES,
         'DATABASE_URL_set': bool(DATABASE_URL),
-        'DATABASE_URL_prefix': DATABASE_URL[:30] + '...' if len(DATABASE_URL) > 30 else DATABASE_URL,
-        'init_error': _init_error,
+        'DATABASE_URL_prefix': (DATABASE_URL[:40] + '...') if len(DATABASE_URL) > 40 else (DATABASE_URL or '(NIJE POSTAVLJEN)'),
+        'VERCEL_ENV': os.environ.get('VERCEL_ENV', 'nije postavljeno'),
+        'init_error': _init_error or 'nema greske',
     }
     if not _init_error:
         try:
-            row = query('SELECT COUNT(*) AS c FROM korisnici', one=True)
-            info['korisnici_count'] = row['c'] if row else 'query returned None'
+            info['korisnici_u_bazi'] = query('SELECT COUNT(*) AS c FROM korisnici', one=True)['c']
+            info['predmeti_u_bazi'] = query('SELECT COUNT(*) AS c FROM predmeti', one=True)['c']
         except Exception as e:
             info['query_error'] = str(e)
-    return '<pre>' + '\n'.join(f'{k}: {v}' for k, v in info.items()) + '</pre>'
+    lines = '\n'.join(f'{k}: {v}' for k, v in info.items())
+    return f'<pre style="font-size:16px;padding:20px">{lines}</pre>'
 
 
 @app.route('/')

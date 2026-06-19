@@ -222,25 +222,29 @@ def _init_sqlite():
 def _seed_data():
     from werkzeug.security import generate_password_hash
     ph = '%s' if USE_POSTGRES else '?'
-    row = query(f'SELECT COUNT(*) AS c FROM korisnici', one=True)
-    if row and int(row['c']) > 0:
-        return
 
     godina = '2025/2026'
+
+    # Razredi — insert only if not already there
+    existing_razredi = {
+        r['naziv'] for r in query(f'SELECT naziv FROM razredi WHERE skolska_godina={ph}', (godina,))
+    }
     for r in range(1, 9):
         for o in ['A', 'B', 'C']:
-            lastrowid(
-                f'INSERT INTO razredi (naziv, razina, skolska_godina) VALUES ({ph},{ph},{ph})',
-                (f'{r}.{o}', r, godina))
+            naziv = f'{r}.{o}'
+            if naziv not in existing_razredi:
+                lastrowid(
+                    f'INSERT INTO razredi (naziv, razina, skolska_godina) VALUES ({ph},{ph},{ph})',
+                    (naziv, r, godina))
 
-    for razina, predmeti in PREDMETI_PO_RAZINI.items():
-        for naziv in predmeti:
-            lastrowid(
-                f'INSERT INTO predmeti (naziv, razina) VALUES ({ph},{ph})',
-                (naziv, razina))
+    # Predmeti — handled by _ensure_predmeti(), skip here
 
-    admin_pass = generate_password_hash('admin123')
-    execute(f'INSERT INTO korisnici (ime, email, lozinka, uloga) VALUES ({ph},{ph},{ph},{ph})',
+    # Admin account — idempotent insert
+    admin_exists = query(f'SELECT id FROM korisnici WHERE email={ph}', ('admin@skola.hr',), one=True)
+    if not admin_exists:
+        admin_pass = generate_password_hash('admin123')
+        execute(
+            f'INSERT INTO korisnici (ime, email, lozinka, uloga) VALUES ({ph},{ph},{ph},{ph})',
             ('Knjižničarka', 'admin@skola.hr', admin_pass, 'administrator'))
     commit()
 

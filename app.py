@@ -102,6 +102,46 @@ def commit():
 
 # ── Schema & seed ─────────────────────────────────────────────────────────────
 
+PREDMETI_PO_RAZINI = {
+    1: ['Hrvatski jezik', 'Hrvatski jezik 2', 'Matematika', 'Matematika 2',
+        'Priroda i društvo', 'Likovna kultura', 'Glazbena kultura',
+        'Tjelesna i zdravstvena kultura', 'Tehnička kultura',
+        'Informatika', '2. jezik',
+        'Katolički vjeronauk', 'Pravoslavni vjeronauk', 'Islamski vjeronauk'],
+    2: ['Hrvatski jezik', 'Hrvatski jezik 2', 'Matematika', 'Matematika 2',
+        'Priroda i društvo', 'Likovna kultura', 'Glazbena kultura',
+        'Tjelesna i zdravstvena kultura', 'Tehnička kultura',
+        'Informatika', '2. jezik',
+        'Katolički vjeronauk', 'Pravoslavni vjeronauk', 'Islamski vjeronauk'],
+    3: ['Hrvatski jezik', 'Hrvatski jezik 2', 'Matematika', 'Matematika 2',
+        'Priroda i društvo', 'Likovna kultura', 'Glazbena kultura',
+        'Tjelesna i zdravstvena kultura', 'Tehnička kultura',
+        'Engleski jezik', 'Informatika', '2. jezik',
+        'Katolički vjeronauk', 'Pravoslavni vjeronauk', 'Islamski vjeronauk'],
+    4: ['Hrvatski jezik', 'Hrvatski jezik 2', 'Matematika', 'Matematika 2',
+        'Priroda i društvo', 'Likovna kultura', 'Glazbena kultura',
+        'Tjelesna i zdravstvena kultura', 'Tehnička kultura',
+        'Engleski jezik', 'Informatika', '2. jezik',
+        'Katolički vjeronauk', 'Pravoslavni vjeronauk', 'Islamski vjeronauk'],
+    5: ['Hrvatski jezik', 'Matematika', 'Priroda', 'Geografija', 'Povijest',
+        'Likovna kultura', 'Glazbena kultura', 'Tjelesna i zdravstvena kultura',
+        'Engleski jezik', 'Informatika', '2. jezik',
+        'Katolički vjeronauk', 'Pravoslavni vjeronauk', 'Islamski vjeronauk'],
+    6: ['Hrvatski jezik', 'Matematika', 'Priroda', 'Geografija', 'Povijest',
+        'Likovna kultura', 'Glazbena kultura', 'Tjelesna i zdravstvena kultura',
+        'Engleski jezik', 'Informatika', '2. jezik',
+        'Katolički vjeronauk', 'Pravoslavni vjeronauk', 'Islamski vjeronauk'],
+    7: ['Hrvatski jezik', 'Matematika', 'Fizika', 'Kemija', 'Biologija',
+        'Geografija', 'Povijest', 'Likovna kultura', 'Glazbena kultura',
+        'Tjelesna i zdravstvena kultura', 'Engleski jezik', 'Informatika', '2. jezik',
+        'Katolički vjeronauk', 'Pravoslavni vjeronauk', 'Islamski vjeronauk'],
+    8: ['Hrvatski jezik', 'Matematika', 'Fizika', 'Kemija', 'Biologija',
+        'Geografija', 'Povijest', 'Likovna kultura', 'Glazbena kultura',
+        'Tjelesna i zdravstvena kultura', 'Engleski jezik', 'Informatika', '2. jezik',
+        'Katolički vjeronauk', 'Pravoslavni vjeronauk', 'Islamski vjeronauk'],
+}
+
+
 def init_db():
     if USE_POSTGRES:
         _init_postgres()
@@ -109,6 +149,7 @@ def init_db():
         _init_sqlite()
     commit()
     _seed_data()
+    _ensure_predmeti()
 
 
 def _init_postgres():
@@ -188,30 +229,31 @@ def _seed_data():
                 f'INSERT INTO razredi (naziv, razina, skolska_godina) VALUES ({ph},{ph},{ph})',
                 (f'{r}.{o}', r, godina))
 
-    predmeti_po_razini = {
-        1: ['Hrvatski jezik', 'Matematika', 'Priroda i društvo', 'Likovna kultura', 'Glazbena kultura', 'Tjelesna i zdravstvena kultura'],
-        2: ['Hrvatski jezik', 'Matematika', 'Priroda i društvo', 'Likovna kultura', 'Glazbena kultura', 'Tjelesna i zdravstvena kultura'],
-        3: ['Hrvatski jezik', 'Matematika', 'Priroda i društvo', 'Likovna kultura', 'Glazbena kultura', 'Tjelesna i zdravstvena kultura', 'Engleski jezik'],
-        4: ['Hrvatski jezik', 'Matematika', 'Priroda i društvo', 'Likovna kultura', 'Glazbena kultura', 'Tjelesna i zdravstvena kultura', 'Engleski jezik'],
-        5: ['Hrvatski jezik', 'Matematika', 'Priroda', 'Geografija', 'Povijest', 'Likovna kultura', 'Glazbena kultura', 'Tjelesna i zdravstvena kultura', 'Engleski jezik', 'Informatika'],
-        6: ['Hrvatski jezik', 'Matematika', 'Priroda', 'Geografija', 'Povijest', 'Likovna kultura', 'Glazbena kultura', 'Tjelesna i zdravstvena kultura', 'Engleski jezik', 'Informatika'],
-        7: ['Hrvatski jezik', 'Matematika', 'Fizika', 'Kemija', 'Biologija', 'Geografija', 'Povijest', 'Likovna kultura', 'Glazbena kultura', 'Tjelesna i zdravstvena kultura', 'Engleski jezik', 'Informatika'],
-        8: ['Hrvatski jezik', 'Matematika', 'Fizika', 'Kemija', 'Biologija', 'Geografija', 'Povijest', 'Likovna kultura', 'Glazbena kultura', 'Tjelesna i zdravstvena kultura', 'Engleski jezik', 'Informatika'],
-    }
-
-    predmet_ids = {}
-    for razina, predmeti in predmeti_po_razini.items():
+    for razina, predmeti in PREDMETI_PO_RAZINI.items():
         for naziv in predmeti:
-            key = (naziv, razina)
-            if key not in predmet_ids:
-                pid = lastrowid(
-                    f'INSERT INTO predmeti (naziv, razina) VALUES ({ph},{ph})',
-                    (naziv, razina))
-                predmet_ids[key] = pid
+            lastrowid(
+                f'INSERT INTO predmeti (naziv, razina) VALUES ({ph},{ph})',
+                (naziv, razina))
 
     admin_pass = generate_password_hash('admin123')
     execute(f'INSERT INTO korisnici (ime, email, lozinka, uloga) VALUES ({ph},{ph},{ph},{ph})',
             ('Knjižničarka', 'admin@skola.hr', admin_pass, 'administrator'))
+    commit()
+
+
+def _ensure_predmeti():
+    """Add any missing subjects to an existing database (migration-safe)."""
+    ph = '%s' if USE_POSTGRES else '?'
+    existing = set(
+        (r['naziv'], r['razina'])
+        for r in query('SELECT naziv, razina FROM predmeti')
+    )
+    for razina, predmeti in PREDMETI_PO_RAZINI.items():
+        for naziv in predmeti:
+            if (naziv, razina) not in existing:
+                execute(
+                    f'INSERT INTO predmeti (naziv, razina) VALUES ({ph},{ph})',
+                    (naziv, razina))
     commit()
 
 

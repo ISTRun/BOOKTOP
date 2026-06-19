@@ -103,24 +103,20 @@ def commit():
 # ── Schema & seed ─────────────────────────────────────────────────────────────
 
 PREDMETI_PO_RAZINI = {
-    1: ['Hrvatski jezik', 'Hrvatski jezik 2', 'Matematika', 'Matematika 2',
-        'Priroda i društvo', 'Likovna kultura', 'Glazbena kultura',
-        'Tjelesna i zdravstvena kultura', 'Tehnička kultura',
+    1: ['Hrvatski jezik', 'Matematika', 'Priroda i društvo',
+        'Likovna kultura', 'Glazbena kultura', 'Tjelesna i zdravstvena kultura',
         'Informatika', '2. jezik',
         'Katolički vjeronauk', 'Pravoslavni vjeronauk', 'Islamski vjeronauk'],
-    2: ['Hrvatski jezik', 'Hrvatski jezik 2', 'Matematika', 'Matematika 2',
-        'Priroda i društvo', 'Likovna kultura', 'Glazbena kultura',
-        'Tjelesna i zdravstvena kultura', 'Tehnička kultura',
+    2: ['Hrvatski jezik', 'Matematika', 'Priroda i društvo',
+        'Likovna kultura', 'Glazbena kultura', 'Tjelesna i zdravstvena kultura',
         'Informatika', '2. jezik',
         'Katolički vjeronauk', 'Pravoslavni vjeronauk', 'Islamski vjeronauk'],
-    3: ['Hrvatski jezik', 'Hrvatski jezik 2', 'Matematika', 'Matematika 2',
-        'Priroda i društvo', 'Likovna kultura', 'Glazbena kultura',
-        'Tjelesna i zdravstvena kultura', 'Tehnička kultura',
+    3: ['Hrvatski jezik', 'Matematika', 'Priroda i društvo',
+        'Likovna kultura', 'Glazbena kultura', 'Tjelesna i zdravstvena kultura',
         'Engleski jezik', 'Informatika', '2. jezik',
         'Katolički vjeronauk', 'Pravoslavni vjeronauk', 'Islamski vjeronauk'],
-    4: ['Hrvatski jezik', 'Hrvatski jezik 2', 'Matematika', 'Matematika 2',
-        'Priroda i društvo', 'Likovna kultura', 'Glazbena kultura',
-        'Tjelesna i zdravstvena kultura', 'Tehnička kultura',
+    4: ['Hrvatski jezik', 'Matematika', 'Priroda i društvo',
+        'Likovna kultura', 'Glazbena kultura', 'Tjelesna i zdravstvena kultura',
         'Engleski jezik', 'Informatika', '2. jezik',
         'Katolički vjeronauk', 'Pravoslavni vjeronauk', 'Islamski vjeronauk'],
     5: ['Hrvatski jezik', 'Matematika', 'Priroda', 'Geografija', 'Povijest',
@@ -242,18 +238,38 @@ def _seed_data():
 
 
 def _ensure_predmeti():
-    """Add any missing subjects to an existing database (migration-safe)."""
+    """Sync subjects: add missing, remove ones no longer in the list."""
     ph = '%s' if USE_POSTGRES else '?'
+
+    # Build expected set
+    expected = {
+        (naziv, razina)
+        for razina, predmeti in PREDMETI_PO_RAZINI.items()
+        for naziv in predmeti
+    }
+
+    # Add missing
     existing = set(
         (r['naziv'], r['razina'])
         for r in query('SELECT naziv, razina FROM predmeti')
     )
-    for razina, predmeti in PREDMETI_PO_RAZINI.items():
-        for naziv in predmeti:
-            if (naziv, razina) not in existing:
-                execute(
-                    f'INSERT INTO predmeti (naziv, razina) VALUES ({ph},{ph})',
-                    (naziv, razina))
+    for naziv, razina in expected - existing:
+        execute(
+            f'INSERT INTO predmeti (naziv, razina) VALUES ({ph},{ph})',
+            (naziv, razina))
+
+    # Remove subjects no longer in the list (only if they have no vraceno data)
+    for naziv, razina in existing - expected:
+        row = query(
+            f'SELECT COUNT(*) AS c FROM vraceno v '
+            f'JOIN predmeti p ON v.predmet_id=p.id '
+            f'WHERE p.naziv={ph} AND p.razina={ph}',
+            (naziv, razina), one=True)
+        if row and int(row['c']) == 0:
+            execute(
+                f'DELETE FROM predmeti WHERE naziv={ph} AND razina={ph}',
+                (naziv, razina))
+
     commit()
 
 
